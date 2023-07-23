@@ -14,7 +14,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 # VERSION
 try:
-    from version import __version__
+    from fitmag import __version__
 except:
     __version__ = ''
 

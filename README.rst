@@ -15,3 +15,5 @@ fitmag
   Kepler magnitudes estimated using function from 
   https://keplergo.arc.nasa.gov/CalibrationZeropoint.shtml 
 
+  Tess "T" magnitude estimated from g'-i' using transformation from Stassun et
+  al., 2018AJ....156..102S

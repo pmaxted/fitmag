@@ -28,6 +28,7 @@ __all__ = ['BV_to_Teff', 'Teff_to_BV',
            'VIc_to_Teff', 'Teff_to_VIc', 
            'gr_to_BV', 'gr_to_Kp', 'BK_to_S_V', 'BK_to_S_B',
            'BV_to_BTVT', 'gri_to_Kp',
+           'gi_to_T',
            'read_data', 'add_mags', 'gTeff_to_magTable',
            'synth_binary', 'synth_triple', 'ms_interpolator']
 
@@ -187,6 +188,13 @@ def gri_to_Kp(g, r, i):
 
 #-----------------------------------------------------------------------------
 
+def gi_to_T(g, i):
+  # From Stassun et al., 2018AJ....156..102S
+  T = i -  0.00206*(g-i)**3 -  0.02370*(g-i)**2 + 0.00573*(g-i) - 0.3078
+  return T
+
+#-----------------------------------------------------------------------------
+
 def BK_to_S_V(BK):
   # Surface brightness relation from Table 5 of Graczyk, 2017
     return 2.625 + 0.959*BK
@@ -251,6 +259,7 @@ def gTeff_to_magTable(g_0, Teff, EBV=0.0):
   i_0 = g_0 - Teff_to_gi(Teff) 
   i = i_0 + 0.76*A_r
   Kp = gri_to_Kp(g, r, i)
+  T  = gi_to_T(g, i)
   J_0 = g_0 - Teff_to_gJ(Teff) 
   J_J = J_0 + 0.30*A_r # Johnson J
   H_J = g_0 - Teff_to_gH(Teff) + 0.21*A_r  # Johnson H
@@ -285,8 +294,8 @@ def gTeff_to_magTable(g_0, Teff, EBV=0.0):
 
 
   bands  = Column(['B', 'V', 'B_T', 'V_T', 'g', 'r', 'i', 'Ic', 
-                   'R_J', 'I_J', 'J', 'H', 'Ks', 'W3', 'K_p'])
-  values = Column([B, V, B_T, V_T, g, r, i, Ic, Rj, Ij, J, H, Ks, W3, Kp],
+                   'R_J', 'I_J', 'J', 'H', 'Ks', 'W3', 'K_p', 'T'])
+  values = Column([B, V, B_T, V_T, g, r, i, Ic, Rj, Ij, J, H, Ks, W3, Kp, T],
           format='%8.4f')
   types  = Column(list('mag' for j in range(len(bands))))
   t =  Table([bands,values,types],names=["band","value","type"])
@@ -300,8 +309,11 @@ def gTeff_to_magTable(g_0, Teff, EBV=0.0):
   S_Ij = S_V - Teff_to_VIj(Teff)
   t.add_row(['I_J', S_Ij,'sb2'])
   Kp_0 = gri_to_Kp(g_0, r_0, i_0)
+  T_0 = gi_to_T(g_0, i_0)
   S_Kp = S_V - V_0 + Kp_0
+  S_T  = S_V - V_0 + T_0
   t.add_row(['K_p', S_Kp,'sb2'])
+  t.add_row(['T', S_T,'sb2'])
 
   return t
 
@@ -391,16 +403,27 @@ def synth_binary(g1, Teff1, g2, Teff2, EBV):
   Kp2 = gr_to_Kp(g2, r2)
   rat_Kp = 10**(0.4*(Kp1-Kp2)) 
   t.add_row(['K_p', rat_Kp,Kp1,Kp2,'rat'])
+  
+  i1 = g1 - Teff_to_gi(Teff1)
+  i2 = g2 - Teff_to_gi(Teff2)
+  T1 = gi_to_T(g1, i1)
+  T2 = gi_to_T(g2, i2)
+  rat_T = 10**(0.4*(T1-T2)) 
+  t.add_row(['T', rat_T,T1,T2,'rat'])
+  
   B1,V1 = gr_to_BV(g1, r1)
   B2,V2 = gr_to_BV(g2, r2)
   rat_V = 10**(0.4*(V1-V2)) 
   t.add_row(['V', rat_V,V1,V2,'rat'])
+
   rat_B = 10**(0.4*(B1-B2)) 
   t.add_row(['B', rat_B,B1,B2,'rat'])
+
   Rj1 = V1 - Teff_to_VRj(Teff1)
   Rj2 = V2 - Teff_to_VRj(Teff2)
   rat_Rj = 10**(0.4*(Rj1-Rj2)) 
   t.add_row(['R_J', rat_Rj,Rj1,Rj2,'rat'])
+
   Ij1 = V1 - Teff_to_VIj(Teff1)
   Ij2 = V2 - Teff_to_VIj(Teff2)
   rat_Ij = 10**(0.4*(Ij1-Ij2)) 
@@ -771,7 +794,8 @@ def main():
       if args.double:
           raise Exception('Option --double incompatible with input file.')
       lrat = np.median(vals[np.where(
-          ((bands == 'K_p') | (bands == 'V')) & (types == 'rat'))])
+          ((bands == 'K_p') | (bands == 'T') | (bands == 'V')) & 
+           (types == 'rat'))])
   else:
       lrat = 0.0
 
@@ -779,17 +803,20 @@ def main():
       if args.double:
           raise Exception('Option --double incompatible with input file.')
       sb2 = np.median(vals[np.where(
-          ((bands == 'K_p') | (bands == 'V')) & (types == 'sb2'))])
+          ((bands == 'K_p') | (bands == 'V') | (bands == 'T')) & 
+           (types == 'sb2'))])
   else:
       sb2 = 0.0
 
   print("\nRead {} lines from {}\n".format(len(data_table),args.phot_file))
 
-  ebv_map=np.median(vals[np.where(types == 'ebv')])
+  try:
+      ebv_map=np.median(vals[np.where(types == 'ebv')])
+  except:
+      raise Exception('No E(B-V) in input file')
 
   sig_ext = args.initial_sig_ext
   assert sig_ext >= 0, "Invalid negative initial sig_ext value"
-
 
 
   print(" Calculating least-squares solution...")
@@ -797,8 +824,9 @@ def main():
       if args.double:
           raise Exception('Option --double incompatible with input file.')
 
-      l_3 = np.median(vals[np.where(((bands == 'K_p') | (bands == 'V'))
-          & (types == 'l_3'))])
+      l_3 = np.median(vals[np.where((
+           (bands == 'K_p') | (bands == 'T') | (bands == 'V')) &
+           (types == 'l_3'))])
       g_0 = g - 1.39*ebv_map*2.770
       f_g = 10**(-0.4*g_0)
       f_3 = f_g/(1+1/l_3)
